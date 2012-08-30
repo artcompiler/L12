@@ -62,10 +62,11 @@
         let json = new Ast::JSON(str);
         let value = json.toValue();
 
-        let str = new Renderer(value).render()
-        //print("target str="+str);
+        let renderer = new Renderer(value)
 
-        Util::writeStringToFile(str, fname + ".svg");
+        let tree = renderer.render()
+
+        Util::writeStringToFile(json.toString(tree), fname + ".L12");
 
         // This is a hack.  The profiler needs to be callback-based; the
         // snapshot is captured so that the profiler won't lose data.

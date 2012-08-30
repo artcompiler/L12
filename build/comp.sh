@@ -1,4 +1,4 @@
 
 DIR=../bin
 
-$DIR/shell $DIR/l10c.swf -- $@
+$DIR/shell $DIR/l12c.swf -- $@
