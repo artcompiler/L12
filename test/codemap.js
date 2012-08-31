@@ -1,0 +1,200 @@
+function init(e) { }
+
+
+var nodeMap = {}
+var fixtureMap = {}
+var edgeMap = {}
+var leafNodeCount = 0
+
+var rootId
+
+var cluster2
+
+var diagonal = d3.svg.diagonal()
+    .projection(function(d) { return [d.y, d.x]; });
+
+var vis2
+
+d3.json(mapName+".js.l7.l11.l9", function(ast) {
+    makeNodeMap(ast)
+    d3.json(mapName+".js.l7.l11.l9.l12", function(tree) {
+	showGraph2(getTree(tree))
+    })
+})
+
+function makeNodeMap(ast) {
+    if ($.isArray(ast)) {
+	$.each(ast, function(i, v) {
+	    if ($.isArray(v)) {
+		makeNodeMap(v)
+	    }
+	    if (v.id) {
+		nodeMap[v.id] = v
+	    }
+	    if (v.class == "Fixture") {
+		fixtureMap[v.id] = v
+	    }
+	    if (v.tag === "path") {
+		var nn = v.id.split("N")
+		var n0 = "N" + nn[1]
+		var n1 = "N" + nn[2]		
+		if (edgeMap[n0] === void 0) {
+		    edgeMap[n0] = [ ]
+		}
+		if (edgeMap[n1] === void 0) {
+		    edgeMap[n1] = [ ]
+		}
+		edgeMap[n0].push(n1)
+		edgeMap[n1].push(n0)
+	    }
+
+	    if (v.elts) {
+		makeNodeMap(v.elts)
+	    }
+	})
+    }
+    if (ast.id) {
+	nodeMap[ast.id] = ast
+    }
+    if (ast.elts) {
+	makeNodeMap(ast.elts)
+    }
+}
+
+function getFixtures() {
+    var classes = []
+    $.each(fixtureMap, function (i, v) {
+	classes.push({name: i, imports: []})
+    })
+    return classes
+}
+
+function getKids(node) {
+    var elts = node.elts
+    if (!elts) {
+	return [node]
+    }
+    var classes = []
+    $.each(elts, function (i, v) {
+	classes.push({name: i, imports: []})
+    })
+    return classes
+}
+
+function getTree(node) {
+    var kids = []
+    if ($.isArray(node)) {
+	$.each(node, function(i, v) {
+	    var t = getTree(v)
+	    if ($.isArray(t)) {
+		kids = kids.concat(t)
+	    }
+	    else {
+		kids.push(t)
+	    }
+	});
+	return kids
+    }
+    else
+    if (node.id && node.edges) {
+	if (node.edges.length === 0) {
+	    leafNodeCount++
+	}
+
+	$.each(node.edges, function(i, v) {
+	    var t = getTree(v)
+	    if ($.isArray(t)) {
+		kids = kids.concat(t)
+	    }
+	    else {
+		kids.push(t)
+	    }
+	});
+        return {name: node.id, label: node.class, children: kids}
+    }
+    else
+    if (node.edges) {
+	$.each(node.edges, function(i, v) {
+	    var t = getTree(v)
+	    if ($.isArray(t)) {
+		kids = kids.concat(t)
+	    }
+	    else {
+		kids.push(t)
+	    }
+	});
+	leafNodeCount++
+        return kids
+    }
+    else {
+        return []
+    }
+}
+
+function showGraph2(tree) {
+    var width = 2000
+    var height = leafNodeCount * 15
+    cluster2 = d3.layout.cluster()
+	.size([height, width - 250]);
+
+  var nodes = cluster2.nodes(tree);
+
+    var vis = d3.select("svg")
+	.attr("width", width)
+	.attr("height", height)
+
+    vis2 = vis.append("svg")
+	.attr("width", width)
+	.attr("height", height)
+	.append("g")
+	.attr("transform", "translate(40, 0)");
+
+  var link = vis2.selectAll("path.link")
+      .data(cluster2.links(nodes))
+    .enter().append("path")
+      .attr("class", "link")
+      .attr("d", diagonal);
+
+  var node = vis2.selectAll("g.node")
+      .data(nodes)
+    .enter().append("g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; })
+
+  node.append("circle")
+      .attr("r", 2);
+
+  node.append("text")
+      .attr("dx", function(d) { return (d.children && d.children.length) ? 0 : 5; })
+      .attr("dy", function(d) { return (d.children && d.children.length) ? 8 : 2; })
+      .attr("text-anchor", function(d) { return (d.children && d.children.length) ? "end" : "start"; })
+      .text(function(d) { 
+	  return (d.children && d.children.length) ? d.label : getLabel2(d.name)
+      });
+
+}
+
+var leafNodeIds = []
+
+function getLabel2(id) {
+    var node = nodeMap[id]
+    leafNodeIds.push(id)
+    switch (node.class) {
+    case "Fixture":
+	return node.class + ": " + node.elts[1].elts[0].elts[0]
+    case "Name":
+	return node.class + ": "+node.elts[0].elts[0]
+    case "Identifier":
+    case "LiteralString":
+    case "LiteralBoolean":
+    case "LiteralInt":
+	return node.class + ": " + node.elts[0]
+    case "LiteralObject":
+	return "{}"
+    case "LiteralArray":
+	return "[]"
+    default:
+	return node.class
+    }
+}
+

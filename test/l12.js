@@ -1,151 +1,250 @@
-// require d3.v2.js
+(function() {
+  packages = {
 
-var xBreak = 500
-var yBreak = 1000
-var yFactor = 13
-var currentNode
-var currentLevel = 0
-var xmlns="http://www.w3.org/2000/svg"
-var Root=document.documentElement
+    // Lazily construct the package hierarchy from class names.
+    root: function(classes) {
+      var map = {};
 
+      function find(name, data) {
+        var node = map[name], i;
+        if (!node) {
+          node = map[name] = data || {name: name, children: []};
+          if (name.length) {
+            node.parent = find(name.substring(0, i = name.lastIndexOf(".")));
+            node.parent.children.push(node);
+            node.key = name.substring(i + 1);
+          }
+        }
+        return node;
+      }
 
-// update the status line
+      classes.forEach(function(d) {
+        find(d.name, d);
+      });
 
-function showStatus(target) {
-    var node = d3.select(target)
-    var statusText = d3.select("#statusText")
-    statusText.selectAll("text").remove()
-    statusText.text(node.attr("id") + " " + node.attr("class"))
+      return map[""];
+    },
+
+    // Return a list of imports for the given array of nodes.
+    imports: function(nodes) {
+      var map = {},
+          imports = [];
+
+      // Compute a map from name to node.
+      nodes.forEach(function(d) {
+        map[d.name] = d;
+      });
+
+      // For each import, construct a link from the source to target node.
+      nodes.forEach(function(d) {
+        if (d.imports) d.imports.forEach(function(i) {
+          imports.push({source: map[d.name], target: map[i]});
+        });
+      });
+
+      return imports;
+    }
+
+  };
+})();
+
+var radius = 960 / 2,
+    splines = [];
+
+var cluster = d3.layout.cluster()
+    .size([360, radius - 120])
+    .sort(null)
+    .value(function(d) { return d.size; });
+
+var bundle = d3.layout.bundle();
+
+var line = d3.svg.line.radial()
+    .interpolate("bundle")
+    .tension(.85)
+    .radius(function(d) { return d.y; })
+    .angle(function(d) { return d.x / 180 * Math.PI; });
+
+var vis = d3.select("#chart").append("svg")
+    .attr("width", radius * 2)
+    .attr("height", radius * 2)
+  .append("g")
+    .attr("transform", "translate(" + radius + "," + radius + ")");
+
+function showGraph(classes) {
+    vis.selectAll("g.node").remove()
+    vis.selectAll("path.link").remove()
+  var nodes = cluster.nodes(packages.root(classes)),
+      links = packages.imports(nodes);
+
+  vis.selectAll("path.link")
+      .data(splines = bundle(links))
+    .enter().append("path")
+      .attr("class", "link")
+      .attr("stroke", "steelblue")
+      .attr("fill", "none")
+      .attr("d", line);
+
+  vis.selectAll("g.node")
+      .data(nodes.filter(function(n) { return !n.children; }))
+    .enter().append("g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "rotate(" + (d.x - 90) + ")translate(" + d.y + ")"; })
+    .append("text")
+      .attr("dx", function(d) { return d.x < 180 ? 8 : -8; })
+      .attr("dy", ".31em")
+      .attr("fill", "grey")
+      .attr("text-anchor", function(d) { return d.x < 180 ? "start" : "end"; })
+      .attr("transform", function(d) { return d.x < 180 ? null : "rotate(180)"; })
+      .attr("id", function(d) { return d.key })
+      .text(function(d) { return getLabel(d); });
 }
 
-// highlight the Nth outer node of the targeted terminal node
+function getLabel(d) {
+    var node = nodeMap[d.key]
+    switch (node.class) {
+    case "Fixture":
+	return node.elts[1].elts[0].elts[0]
+    case "Identifier":
+	return d.key+":"+node.elts[0]
+    default:
+	return d.key+":"+node.class
+    }
+}
 
-function selectNode(target) {
-  var str = ""
-  if (target==currentNode) {
-    currentLevel++
-  }
-  else {
-    currentLevel = 0
-    currentNode = target
-  }
-  var n = 0
-  while ("class" in target.attributes) {
-    if (n != currentLevel) {
-      target = target.parentNode; n++
-      continue
+d3.select(window).on("mousemove", function() {
+  vis.selectAll("path.link")
+      .data(splines)
+      .attr("d", line.tension(Math.min(1, d3.event.clientX / 960)));
+});
+
+var prevClasses = []
+
+d3.select(window).on("mousedown", function() {
+    drawGraph(d3.event.target)
+});
+
+function removeNode(nodes, id) {
+    $.each(nodes, function(i, v) {
+	if (v && v.name === id) {
+	    delete nodes[i]
+	}
+    })
+}
+
+function getChildren(elts, imports) {
+    var classes = []
+    if (elts) {
+	$.each(elts, function(i, v) {
+	    if ($.isArray(v)) {
+		classes = classes.concat(getChildren(v, imports))
+	    }
+	    else if (v.id) { 
+		classes.push({"name": v.id, "imports": []})
+	    }
+	});
     }
-    drawEdges(target)
-    drawBorder(target)
-    showStatus(target)
-    if (n == currentLevel) {
-      break
+    return classes
+}
+
+var nodeMap = {}
+var fixtureMap = {}
+var edgeMap = {}
+
+function makeNodeMap(ast) {
+    if ($.isArray(ast)) {
+	$.each(ast, function(i, v) {
+	    if ($.isArray(v)) {
+		makeNodeMap(v)
+	    }
+	    if (v.id) {
+		nodeMap[v.id] = v
+	    }
+	    if (v.class == "Fixture") {
+		fixtureMap[v.id] = v
+	    }
+	    if (v.tag === "path") {
+		var nn = v.id.split("N")
+		var n0 = "N" + nn[1]
+		var n1 = "N" + nn[2]		
+		if (edgeMap[n0] === void 0) {
+		    edgeMap[n0] = [ ]
+		}
+		if (edgeMap[n1] === void 0) {
+		    edgeMap[n1] = [ ]
+		}
+		edgeMap[n0].push(n1)
+		edgeMap[n1].push(n0)
+	    }
+
+	    if (v.elts) {
+		makeNodeMap(v.elts)
+	    }
+	})
     }
-  }
+    if (ast.id) {
+	nodeMap[ast.id] = ast
+    }
+    if (ast.elts) {
+	makeNodeMap(ast.elts)
+    }
+}
+
+function getFixtures() {
+    var classes = []
+    $.each(fixtureMap, function (i, v) {
+	classes.push({name: i, imports: []})
+    })
+    return classes
+}
+
+d3.json("todos.js.l7.l11.l9", function(ast) {
+    var elts = ast[0][0].elts
+    makeNodeMap(elts)
+    d3.json("todos.js.l7.l11.l9.l12", function(ast) {
+
+
+    var classes = getFixtures()
+    showGraph(classes)
+});
+
+function drawGraph(target) {
+    var graph = getGraph(target)
+    var classes = [ ]
+    $.each(graph, function(a, b) {
+	classes.push({name: a, imports: b})
+    })
+    vis.selectAll("g.node").remove()
+    vis.selectAll("path.link").remove()
+    showGraph(classes)
+}
+
+function getGraph(target) {
+    var node = d3.select(target)
+    var id = node.attr("id")
+    var edges = edgeMap[id]
+    var graph = { }
+    graph[id] = edges
+    $.each(edges, function(i, v) {
+	if (graph[v] === void 0) {
+	    graph[v] = [ ]
+	}
+	graph[v].push(id)
+    })
+    return graph
 }
 
 function drawEdges(target) {
     var node = d3.select(target)
     var edges = d3.selectAll("path[id*="+node.attr("id")+"]")
-    edges.attr("stroke", "lime ")
-    edges.attr("stroke-width", "3")
+    edges.attr("stroke", "red")
+    edges.attr("stroke-width", "1")
+    edges.attr("stroke-opacity", "1")
     node.selectAll("*").each(function (v, i, j) { 
-	drawEdges(this)
+	var node = d3.select(this)
+	var edges = d3.selectAll("path[id*="+node.attr("id")+"]")
+	edges.attr("stroke", "red")
+	edges.attr("stroke-width", "1")
+	edges.attr("stroke-opacity", "1")
     })
-}
-
-
-function drawBorder(target){
-    var node = d3.select(target)
-    var x0 = +node.attr("xStart")
-    var y0 = +node.attr("yStart")
-    var x1 = +node.attr("xStop")
-    var y1 = +node.attr("yStop")
-
-    // -- if crossing xBreak, then y0 = 0
-    // -- if crossing line, then y0(x) = y0(x0) + 1
-    // -- and, y1(x)
-
-    var xMin, xMax
-
-    var range = function () {
-	// multiline
-	if (y1-y0 > yFactor || Math.floor(x0/xBreak) < Math.floor(x1/xBreak)) {
-	    xMin = Math.floor(x0/xBreak) * xBreak
-	    xMax = (Math.floor((x1)/xBreak) + 1) * xBreak
-	}
-	else {
-	    xMin = x0
-	    xMax = x1
-	}
-	return xMax - xMin
-    }
-
-    var data = d3.range(range())
-	.map(function(i) {
-	    return {x: xMin+i, y0: y0, y1: y1}
-	})
-
-    var area = d3.svg.area()
-	.x(function(d) { return d.x })
-	.y0(function(d) {
-	    if (d.x <= x0) {
-		return y0 + yFactor*0.3
-	    }
-	    else if (Math.floor(d.x/xBreak) > Math.floor(x0/xBreak)) {
-		return 0
-	    }
-	    else {
-		return y0 - yFactor*0.7
-	    }
-	})
-	.y1(function(d) {
-	    if (Math.floor(d.x/xBreak) < Math.floor(x1/xBreak)) {
-		return yBreak + yFactor*0.5
-	    }
-	    if (d.x > x1) {
-		return y1 - yFactor
-	    }
-	    else {
-		return y1 + yFactor*0.5
-	    }
-	})
-
-    // associate data with the root svg node
-    var svg = d3.select("svg").datum(data)
-
-    svg.select("path").remove()
-
-    // insert path with shape derived from svg associated data
-    svg.insert("path", ":first-child")
-	.attr("d", area)
-	.style("fill", "steelblue")
-	.style("fill-opacity", "0.2")
-
-
-    drawDot(target)
-
-}
-
-function init(node) {
-    $.getJSON("todos.js.notes", function(data) {
-    })
-}
-
-function drawDot(target) {
-    var node = d3.select(target)
-    var x0 = +node.attr("xStart")
-    var y0 = +node.attr("yStart")
-
-    var dot = d3.svg.arc().outerRadius(function () { return 50 })
-
-    var svg = d3.select("svg")
-
-    svg.append("circle")
-	.attr("r", 3)
-        .attr("cx", x0)
-        .attr("cy", y0-yFactor*0.7)
-	.style("fill", "red")
-	.style("fill-opacity", "0.5")
 }
 

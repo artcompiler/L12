@@ -1,11 +1,8 @@
 OVERVIEW
 
-L10 is a language with SVG syntax and semantics. It parse and renders SVG
-to and from ASTs formatted as JSON. The translation between ASTs and SVG is
-almost a direct mapping of AST tag property to SVG element of that tag name,
-with attributes given by other AST properties.
+L12 converts L9 to a simplified tree representation of the AST.
 
-L8 is written in L0. 
+L12 is written in L0. 
 
 BUILDING
 
@@ -16,7 +13,7 @@ To build:
 
 This produces the file:
 
-   ../bin/l10c.swf
+   ../bin/l12c.swf
 
 
 USING
@@ -27,12 +24,12 @@ To run:
 
 or
 
-    avmshell ../bin/l10c.swf some.l9
+    avmshell ../bin/l12c.swf some.l9
 
 where avmshell is the name of a recent build of Tamarin.
 
 
 This produces the file:
 
-    some.l9.l10
+    some.l9.l12
 
