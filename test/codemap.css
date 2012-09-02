@@ -1,5 +1,5 @@
 .link {
-    stroke: rgb(0,173,209);
+    stroke: rgba(0,173,209, .5);
     fill: none;
 }
 
